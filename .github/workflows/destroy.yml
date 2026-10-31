@@ -29,7 +29,7 @@ jobs:
     if: ${{ github.event.inputs.confirmar == 'destroy' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build Lambda layers
         uses: actions/setup-python@v5

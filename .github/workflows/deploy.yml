@@ -1,0 +1,115 @@
+name: Deploy
+
+# Despliega toda la infra en la cuenta cuyas credenciales esten cargadas como
+# secrets del repo. Corre al mergear a main (push) y a pedido (workflow_dispatch)
+# No corre en el PR porque un PR desde un fork no tiene acceso a los secrets
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      front_ref:
+        description: "Ref del repo barriofix-front a compilar"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+# Que no se solapen dos deploys sobre el mismo state
+concurrency:
+  group: barriofix-terraform
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "true"
+  FRONT_REPO: clararodriguezacevedo/barriofix-front
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRONT_REPO }}
+          ref: ${{ github.event.inputs.front_ref || 'main' }}
+          path: front-src
+
+      - name: Build frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci && npm run build
+        working-directory: front-src
+
+      - name: Build Lambda layers
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: bash back/scripts/build.sh
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.0"
+          terraform_wrapper: false
+
+      - name: AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolver account id
+        run: echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
+
+      - name: Bootstrap del state (si falta el bucket)
+        run: |
+          BUCKET="barriofix-tfstate-${ACCOUNT_ID}"
+          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            echo "El bucket de state ya existe."
+          else
+            echo "Creando el bucket de state..."
+            cd terraform/bootstrap
+            terraform init -input=false
+            terraform apply -auto-approve -input=false
+          fi
+
+      - name: Terraform plan
+        working-directory: terraform/organization
+        # Secret opcional: si no esta cargado se usa la key default de variables.tf
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: |
+          MAPS_VAR=()
+          if [ -n "${GOOGLE_MAPS_API_KEY}" ]; then
+            MAPS_VAR=(-var "google_maps_api_key=${GOOGLE_MAPS_API_KEY}")
+          fi
+          terraform init -input=false -backend-config="bucket=barriofix-tfstate-${ACCOUNT_ID}"
+          terraform validate
+          terraform plan -input=false -out=tfplan \
+            -var "front_dist_path=${GITHUB_WORKSPACE}/front-src/dist" \
+            "${MAPS_VAR[@]}"
+
+      - name: Terraform apply
+        working-directory: terraform/organization
+        # Aplica el plan ya guardado, asi se ejecuta exactamente lo planeado
+        # parallelism=1: crear las Lambdas de VPC de a una evita el timeout de ENIs del lab
+        run: terraform apply -input=false -parallelism=1 tfplan
+
+      - name: Resumen
+        working-directory: terraform/organization
+        run: |
+          {
+            echo "### BarrioFix desplegado"
+            echo "- Sitio: $(terraform output -raw frontend_url)"
+            echo "- API: $(terraform output -raw api_url)"
+            echo "- Login (Hosted UI): $(terraform output -raw hosted_ui_login_url)"
+          } >> "$GITHUB_STEP_SUMMARY"

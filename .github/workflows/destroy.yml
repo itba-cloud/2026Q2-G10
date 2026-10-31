@@ -1,0 +1,77 @@
+name: Destroy
+
+# Destruye toda la infra
+# Requiere confirmacion explicita
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Escribi "destroy" para confirmar'
+        required: true
+      borrar_state:
+        description: "Tambien borrar el bucket de state (true/false)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: barriofix-terraform
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  destroy:
+    if: ${{ github.event.inputs.confirmar == 'destroy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Lambda layers
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: bash back/scripts/build.sh
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.0"
+          terraform_wrapper: false
+
+      - name: AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolver account id
+        run: echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
+
+      - name: Vaciar buckets (awscc no tiene force_destroy)
+        # Incluye las versiones viejas: media tiene versionado y sin borrarlas
+        # el destroy falla con "The bucket you tried to delete is not empty"
+        run: |
+          for b in "barriofix-frontend-${ACCOUNT_ID}" "barriofix-media-${ACCOUNT_ID}"; do
+            bash .github/scripts/vaciar-bucket.sh "$b"
+          done
+
+      - name: Terraform destroy
+        working-directory: terraform/organization
+        run: |
+          terraform init -input=false -backend-config="bucket=barriofix-tfstate-${ACCOUNT_ID}"
+          terraform destroy -auto-approve -input=false -parallelism=1 \
+            -var "front_dist_path="
+
+      - name: Borrar el bucket de state (opcional)
+        if: ${{ github.event.inputs.borrar_state == 'true' }}
+        run: |
+          BUCKET="barriofix-tfstate-${ACCOUNT_ID}"
+          bash .github/scripts/vaciar-bucket.sh "$BUCKET"
+          aws s3 rb "s3://${BUCKET}" 2>/dev/null || true

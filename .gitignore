@@ -1,0 +1,57 @@
+# Documentacion interna
+notas/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Las variables reales (credenciales, valores de cada cuenta) no se versionan
+# Si hace falta un ejemplo, va en un *.tfvars.example
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# El lock del modulo raiz SI se versiona (fija las versiones de los providers)
+# El del modulo propio no hace falta, solo haria ruido
+terraform/modules/*/.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Artefactos de build y deploy
+# Zips de las Lambdas y layers, se generan en el pipeline, no se versionan
+build/
+.build/
+*.zip
+# Front descargado desde el release de barriofix-front
+front-dist/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Editor y sistema
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+.claude/settings.local.json

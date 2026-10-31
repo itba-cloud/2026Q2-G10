@@ -1,0 +1,5 @@
+[
+  { "id": 1, "nombre": "Baja", "orden_prioridad": 3, "descripcion": "Puede esperar varios dias" },
+  { "id": 2, "nombre": "Media", "orden_prioridad": 2, "descripcion": "En el dia o al siguiente" },
+  { "id": 3, "nombre": "Alta", "orden_prioridad": 1, "descripcion": "Urgente, lo antes posible" }
+]

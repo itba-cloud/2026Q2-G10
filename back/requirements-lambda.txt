@@ -1,0 +1,6 @@
+# Dependencias que no vienen provistas en Lambda. Vacio a proposito.
+#   boto3                             ya esta en el runtime
+#   aws-lambda-powertools, pydantic   vienen del layer publico de Powertools
+#
+# Si una funcion necesita algo (por ejemplo para enviar-email), va aca y
+# build.sh arma el deps-layer.

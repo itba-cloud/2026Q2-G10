@@ -1,0 +1,53 @@
+name: Validate
+
+# Chequeos que corren en el PR SIN credenciales
+# El fmt y el analisis de seguridad los hacen los workflows del template
+# sumamos validate, compilacion de Python y build del front
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.0"
+          terraform_wrapper: false
+      - name: Validate organization
+        working-directory: terraform/organization
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+      - name: Validate modulo lambda_function
+        working-directory: terraform/modules/lambda_function
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compilar handlers y layer comun
+        run: python -m py_compile back/layers/common/python/barriofix/*.py back/functions/*/app.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: clararodriguezacevedo/barriofix-front
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci && npm run build
